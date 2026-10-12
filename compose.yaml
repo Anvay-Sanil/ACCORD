@@ -1,0 +1,73 @@
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: accord_admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: accord
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U accord_admin -d accord"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+  migrate:
+    build: .
+    command: ["python", "-m", "accord.provision_db"]
+    environment:
+      DATABASE_URL: postgresql://accord_admin:${POSTGRES_PASSWORD}@db:5432/accord
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in .env}
+    depends_on:
+      db: {condition: service_healthy}
+  api:
+    build: .
+    ports: ["127.0.0.1:8000:8000"]
+    environment: &runtime
+      DATABASE_URL: postgresql://accord_app:${APP_DB_PASSWORD}@db:5432/accord
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:8000}
+      PUBLIC_DEPLOYMENT: ${PUBLIC_DEPLOYMENT:-false}
+      SESSION_SECURE: ${SESSION_SECURE:-false}
+      PAYPAL_CLIENT_ID: ${PAYPAL_CLIENT_ID:-}
+      PAYPAL_CLIENT_SECRET: ${PAYPAL_CLIENT_SECRET:-}
+      PAYPAL_MERCHANT_ID: ${PAYPAL_MERCHANT_ID:-}
+      PAYPAL_WEBHOOK_ID: ${PAYPAL_WEBHOOK_ID:-}
+      FAULT_DROP_CAPTURE_RESPONSE: "false"
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+  payments:
+    build: .
+    command: ["python", "-m", "accord.worker"]
+    environment: *runtime
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+  extraction:
+    build: .
+    command: ["python", "-m", "accord.extraction_worker"]
+    environment:
+      DATABASE_URL: postgresql://accord_app:${APP_DB_PASSWORD}@db:5432/accord
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-2025-04-14}
+    mem_limit: 768m
+    cpus: 1
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+  seed:
+    build: .
+    profiles: ["tools"]
+    entrypoint: ["python", "-m", "accord.seed"]
+    environment:
+      DATABASE_URL: postgresql://accord_admin:${POSTGRES_PASSWORD}@db:5432/accord
+      PAYPAL_MERCHANT_ID: ${PAYPAL_MERCHANT_ID:-}
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+  test:
+    build: .
+    profiles: ["tools"]
+    command: ["python", "-m", "pytest", "-q"]
+    environment:
+      TEST_DATABASE_URL: postgresql://accord_admin:${POSTGRES_PASSWORD}@db:5432/accord_test
+    depends_on:
+      db: {condition: service_healthy}
+volumes:
+  pgdata:
+

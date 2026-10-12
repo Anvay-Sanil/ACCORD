@@ -1,0 +1,15 @@
+[project]
+name = "accord-payment-foundation"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115,<1", "uvicorn>=0.34,<1", "pydantic-settings>=2.7,<3",
+  "psycopg[binary]>=3.2,<4", "sqlalchemy>=2.0,<3", "alembic>=1.14,<2",
+  "httpx>=0.28,<1", "argon2-cffi>=23,<26", "pdfplumber>=0.11,<1"
+]
+[project.optional-dependencies]
+test = ["pytest>=8,<10", "reportlab>=4,<6"]
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = ["postgres: requires a disposable PostgreSQL database", "linux: exercises Linux resource limits"]
