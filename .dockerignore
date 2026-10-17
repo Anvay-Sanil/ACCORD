@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+.git
+__pycache__
+**/__pycache__
+.pytest_cache
+test-results.xml
+PHASE3_SOURCE.md
+VERIFICATION.md
+acceptance-record
+*.zip

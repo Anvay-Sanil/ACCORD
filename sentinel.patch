@@ -1,0 +1,575 @@
+--- a/accord/api.py
++++ b/accord/api.py
+@@ -20,7 +20,7 @@
+ from .coordinator import Coordinator, Conflict
+ from .db import DB, canonical, digest, uid, utcnow
+ from .evidence import Finding, evaluate, review_interpretation
+-from .paypal import PayPal, ProviderError
++from .paypal import PayPal, ProviderError, event_resource_ids
+ 
+ 
+ class Input(BaseModel):
+@@ -287,7 +287,8 @@
+             supplementary = event["resource"].get("supplementary_data",{})
+             if not isinstance(supplementary,dict) or not isinstance(supplementary.get("related_ids",{}),dict):
+                 raise ValueError()
+-        except (ValueError,UnicodeDecodeError):
++            event_resource_ids(event)
++        except (ValueError,TypeError,UnicodeDecodeError):
+             raise HTTPException(400,"Invalid webhook")
+         try:
+             valid = await paypal.verify(raw,request.headers)
+--- a/accord/coordinator.py
++++ b/accord/coordinator.py
+@@ -84,6 +84,7 @@
+             if old and old["first_dispatch_at"]:
+                 return old
+             if (not d["authorization_id"] or d["cancel_requested"] or
++                    d["payment_state"] not in ("AUTHORIZED", "CAPTURE_QUEUED") or
+                     not d["capture_deadline"] or self.clock() >= d["capture_deadline"]):
+                 raise Conflict("Capture is not eligible")
+             decision = conn.execute("""SELECT * FROM decisions WHERE deal_id=%s AND
+--- a/accord/evidence.py
++++ b/accord/evidence.py
+@@ -10,7 +10,14 @@
+ 
+ SCHEMA_VERSION = "finding-v1"
+ PROMPT_VERSION = "extract-v1"
+-RULE_VERSION = "bounded-layouts-v1"
++RULE_VERSION = "bounded-layouts-v2"
++
++CERTIFICATE_ASSOCIATIONS = (
++    r"PO: ([A-Z0-9-]+)\nLot: ([A-Z0-9-]+)(?:\nRequired grade: [0-9]{3}[A-Z]?)?\nDelivered grade: ([0-9]{3}[A-Z]?)",
++    r"([A-Z0-9-]+) \| ([A-Z0-9-]+) \| ([0-9]{3}[A-Z]?)",
++    r"For purchase order ([A-Z0-9-]+), lot ([A-Z0-9-]+), the delivered material grade is ([0-9]{3}[A-Z]?)\.",
++)
++RECEIPT_ASSOCIATIONS = (r"PO: ([A-Z0-9-]+)\nLot: ([A-Z0-9-]+)\nReceived: (YES|NO)",)
+ 
+ 
+ class Finding(BaseModel):
+@@ -43,6 +50,20 @@
+     return text
+ 
+ 
++def association_rows(document):
++    text = "\n".join(s["text"] for s in document["parsed"]["spans"])
++    patterns = CERTIFICATE_ASSOCIATIONS if document["kind"] == "certificate" else RECEIPT_ASSOCIATIONS
++    return [(m.group(1), m.group(2), m.group(3), m.group(0))
++            for pattern in patterns for m in re.finditer(pattern, text)]
++
++
++def check_reviewed_value(document, finding):
++    """Human review may resolve unknown prose, but cannot rewrite a known field."""
++    for po, lot, value, _ in association_rows(document):
++        if (po, lot) == (finding.purchase_order, finding.lot) and value != finding.value:
++            raise Conflict("Review contradicts recognized delivered value; replace or supersede the evidence")
++
++
+ def admissible(document, finding, policy):
+     """Three complete field/PO/lot associations; unknown semantics fail closed."""
+     try:
+@@ -57,19 +78,11 @@
+     if re.search(r"\b(not|never|except|unless|isn't|isn’t|rejected|ignore|instructions?|system|assistant|override|capture)\b",all_text,re.I):
+         return False,"negation, exception, or embedded instructions require buyer review"
+     # A finding cannot cherry-pick a row: all supported associations are examined.
++    rows = association_rows(document)
+     if document["kind"] == "certificate":
+-        patterns = [
+-            r"PO: ([A-Z0-9-]+)\nLot: ([A-Z0-9-]+)\nDelivered grade: ([0-9]{3}[A-Z]?)",
+-            r"([A-Z0-9-]+) \| ([A-Z0-9-]+) \| ([0-9]{3}[A-Z]?)",
+-            r"For purchase order ([A-Z0-9-]+), lot ([A-Z0-9-]+), the delivered material grade is ([0-9]{3}[A-Z]?)\.",
+-        ]
+-        rows = [(m.group(1),m.group(2),m.group(3),m.group(0)) for p in patterns for m in re.finditer(p,all_text)]
+         grades = set(re.findall(r"(?<![\w-])[0-9]{3}[A-Z]?(?![\w-])",all_text))
+         if len(grades) != 1:
+             return False,"competing or missing grade values"
+-    else:
+-        pattern = r"PO: ([A-Z0-9-]+)\nLot: ([A-Z0-9-]+)\nReceived: (YES)"
+-        rows = [(m.group(1),m.group(2),m.group(3),m.group(0)) for m in re.finditer(pattern,all_text)]
+     if len(rows) != 1:
+         return False,"unresolved row association or unsupported layout"
+     rpo,rlot,value,passage = rows[0]
+@@ -113,6 +126,7 @@
+                 if human:
+                     finding = Finding.model_validate(review["interpretation"])
+                     cited_text(doc,finding)
++                    check_reviewed_value(doc, finding)
+                     ok,reason = True,"buyer reviewed interpretation"
+                 else:
+                     extraction = doc.get("extraction") or {}
+@@ -158,6 +172,7 @@
+         if not doc or not doc["parsed"]:
+             raise Conflict("Parsed active document required")
+         quote = cited_text(doc,finding)
++        check_reviewed_value(doc, finding)
+         if any(v not in quote for v in (finding.purchase_order,finding.lot,finding.value)):
+             raise Conflict("Reviewed quote must include PO, lot and proposed value")
+         if finding.purchase_order != d["policy"]["purchase_order"] or finding.lot != d["policy"]["lot"]:
+--- a/accord/paypal.py
++++ b/accord/paypal.py
+@@ -6,6 +6,7 @@
+ import time
+ from datetime import datetime, timezone
+ from email.utils import parsedate_to_datetime
++from urllib.parse import urlsplit
+ 
+ import httpx
+ 
+@@ -22,6 +23,49 @@
+     base = {"order": "/v2/checkout/orders", "authorization": "/v2/payments/authorizations",
+             "capture": "/v2/payments/captures"}[kind]
+     return f"{base}/{identity}"
++
++
++def event_resource_ids(event):
++    """Extract correlation IDs; never request a URL supplied by a webhook.
++
++    A refunded event identifies a refund resource, whose documented `up` link
++    may be the only capture relationship. Decode only a Sandbox capture path,
++    then build canonical resource requests with resource_path().
++    """
++    resource = event.get("resource", {})
++    related = resource.get("supplementary_data", {}).get("related_ids", {})
++    ids = {kind: related.get(kind + "_id") for kind in ("order", "authorization", "capture")}
++    event_type = event.get("event_type", "")
++    if event_type.startswith("PAYMENT.AUTHORIZATION."):
++        ids["authorization"] = resource.get("id") or ids["authorization"]
++    elif event_type.startswith("PAYMENT.CAPTURE."):
++        if event_type != "PAYMENT.CAPTURE.REFUNDED":
++            ids["capture"] = resource.get("id") or ids["capture"]
++        else:
++            captures = {ids["capture"]} if ids["capture"] else set()
++            links = resource.get("links", [])
++            if not isinstance(links, list):
++                raise ValueError("Invalid refund relationships")
++            for link in links:
++                if not isinstance(link, dict) or link.get("rel") != "up":
++                    continue
++                if link.get("method", "GET") != "GET" or not isinstance(link.get("href"), str):
++                    raise ValueError("Invalid refund capture link")
++                url = urlsplit(link["href"])
++                match = re.fullmatch(r"/v2/payments/captures/([A-Za-z0-9-]{1,64})", url.path)
++                if (url.scheme != "https" or url.hostname not in
++                    {"api-m.sandbox.paypal.com", "api.sandbox.paypal.com"} or
++                    url.port not in (None, 443) or url.username or url.password or
++                    url.query or url.fragment or not match):
++                    raise ValueError("Invalid Sandbox refund capture relationship")
++                captures.add(match.group(1))
++            if len(captures) > 1:
++                raise ValueError("Conflicting refund capture relationships")
++            ids["capture"] = next(iter(captures), None)
++    for kind, identity in ids.items():
++        if identity is not None:
++            resource_path(kind, identity)  # Validate IDs before database correlation.
++    return ids
+ 
+ 
+ def retry_after_seconds(value):
+--- a/accord/worker.py
++++ b/accord/worker.py
+@@ -6,7 +6,7 @@
+ 
+ from .coordinator import Coordinator, Conflict, insert_operation, lock_deal, operation
+ from .db import DB, audit, digest, uid, utcnow
+-from .paypal import PayPal, ProviderError, backoff, resource_path
++from .paypal import PayPal, ProviderError, backoff, resource_path, event_resource_ids
+ 
+ WORK_STATES = ("QUEUED", "IN_FLIGHT", "RECONCILING", "PENDING")
+ KNOWN_PAYMENT_STATES = ("CAPTURED", "REFUNDED", "PARTIALLY_REFUNDED", "REVERSED", "VOIDED", "EXPIRED")
+@@ -17,6 +17,11 @@
+     deal: dict
+     op: dict
+     generation: int
++
++
++@dataclass
++class UnavailableAuthorization:
++    resource: dict
+ 
+ 
+ def parse_time(value):
+@@ -131,7 +136,12 @@
+                 state = "RECONCILING" if o["first_dispatch_at"] else "CANCELLED"
+             elif o["kind"] == "CAPTURE":
+                 decision = conn.execute("SELECT * FROM decisions WHERE id=%s",(o["decision_id"],)).fetchone()
+-                if (not decision or decision["outcome"] != "PASS" or
++                if (not o["first_dispatch_at"] and
++                    d["payment_state"] not in ("AUTHORIZED", "CAPTURE_QUEUED")):
++                    reason = "Authorization is not confirmed available for capture"
++                elif d["payment_state"] in ("VOIDED", "EXPIRED", "AUTHORIZATION_DENIED"):
++                    reason, state = "Authorization cannot be captured; read-only reconciliation", "RECONCILING"
++                elif (not decision or decision["outcome"] != "PASS" or
+                     decision["evidence_generation"] != d["evidence_generation"] or
+                     decision["policy_hash"] != d["policy_hash"] or not d["delivery_ack"] or
+                     not d["buyer_approved"] or not d["supplier_approved"]):
+@@ -231,10 +241,7 @@
+                     event = e["event"]
+                     if not event.get("event_type","").startswith("PAYMENT.CAPTURE."):
+                         continue
+-                    resource = event["resource"]
+-                    related = resource.get("supplementary_data",{}).get("related_ids",{})
+-                    # A refund event's resource ID identifies the refund, not the capture.
+-                    candidate = related.get("capture_id") if event["event_type"]=="PAYMENT.CAPTURE.REFUNDED" else resource.get("id")
++                    candidate = event_resource_ids(event)["capture"]
+                     if candidate:
+                         ids.add(candidate)
+                 if len(ids) > 1:
+@@ -249,7 +256,48 @@
+                 related.get("authorization_id",d["authorization_id"]) != d["authorization_id"]):
+                 raise Conflict("Capture relationship mismatch")
+             return capture
++        # A merchant can void an authorization outside ACCORD before its webhook
++        # arrives. Inspect the canonical authorization before sending any capture
++        # POST; a consumed authorization is not evidence that a retry is safe.
++        auth = await self.paypal.get(resource_path("authorization", d["authorization_id"]))
++        check_amount(auth)
++        if auth.get("id") != d["authorization_id"]:
++            raise Conflict("Authorization ID mismatch")
++        if auth.get("payee", {}).get("merchant_id", d["merchant_id"]) != d["merchant_id"]:
++            raise Conflict("Authorization merchant mismatch")
++        status = auth.get("status")
++        if status not in ("CREATED", "PENDING", "DENIED", "VOIDED", "EXPIRED", "CAPTURED", "PARTIALLY_CAPTURED"):
++            raise Conflict("Unknown authorization status")
++        if status != "CREATED":
++            return UnavailableAuthorization(auth)
++        # A pending authorization may become available between polling attempts.
++        # Only recover the availability label; never erase known financial facts.
++        with self.db.tx() as conn:
++            current = self.fenced(conn, claim)
++            if current and current["payment_state"] == "AUTHORIZATION_PENDING":
++                conn.execute("UPDATE deals SET payment_state='AUTHORIZED' WHERE id=%s", (d["id"],))
+         return None
++
++    def authorization_unavailable(self, claim, resource):
++        """Observe an unavailable authorization without treating it as a capture."""
++        status = resource["status"]
++        with self.db.tx() as conn:
++            d = self.fenced(conn, claim)
++            if not d:
++                return False
++            o = operation(conn, d["id"], "CAPTURE")
++            payment = {"PENDING": "AUTHORIZATION_PENDING", "DENIED": "AUTHORIZATION_DENIED",
++                       "VOIDED": "VOIDED", "EXPIRED": "EXPIRED"}.get(status, "RECONCILING")
++            state = "PENDING" if status == "PENDING" else (
++                "RECONCILING" if o["first_dispatch_at"] or status in ("CAPTURED", "PARTIALLY_CAPTURED") else "BLOCKED")
++            if d["payment_state"] not in KNOWN_PAYMENT_STATES:
++                conn.execute("UPDATE deals SET payment_state=%s WHERE id=%s", (payment, d["id"]))
++            conn.execute("""UPDATE operations SET state=%s,last_error=%s,next_attempt_at=%s WHERE id=%s""",
++                         (state, "Authorization status: " + status,
++                          self.clock() + timedelta(seconds=60), o["id"]))
++            audit(conn, d["id"], "CAPTURE_AUTHORIZATION_UNAVAILABLE", {"status": status, "state": state})
++            self.release(conn, claim)
++            return True
+ 
+     def finish(self,claim,value,attempt_id=None):
+         o = claim.op
+@@ -276,13 +324,22 @@
+                     raise Conflict("Authorization creation time is in the future")
+                 if d["authorized_at"] and d["authorized_at"] != created:
+                     raise Conflict("Authorization timestamp changed")
+-                if value["status"] not in ("CREATED","VOIDED","EXPIRED"):
+-                    raise Conflict("Authorization is not in CREATED state")
++                status = value["status"]
++                if status not in ("CREATED", "PENDING", "DENIED", "VOIDED", "EXPIRED", "CAPTURED", "PARTIALLY_CAPTURED"):
++                    raise Conflict("Unknown authorization status")
+                 conn.execute("UPDATE deals SET authorization_id=%s,authorized_at=%s,capture_deadline=%s WHERE id=%s",
+                              (provider_id,created,created+timedelta(hours=48),d["id"]))
+-                payment = "AUTHORIZED" if value["status"]=="CREATED" else value["status"]
++                payment = {"CREATED": "AUTHORIZED", "PENDING": "AUTHORIZATION_PENDING",
++                           "DENIED": "AUTHORIZATION_DENIED", "VOIDED": "VOIDED", "EXPIRED": "EXPIRED"}.get(status, "RECONCILING")
++                if status == "PENDING":
++                    state = "PENDING"
++                elif status == "DENIED":
++                    state = "FAILED"
++                elif status in ("CAPTURED", "PARTIALLY_CAPTURED"):
++                    state = "MANUAL_REVIEW"
+                 if d["payment_state"] in ("CAPTURED","REFUNDED","PARTIALLY_REFUNDED","REVERSED"):
+                     payment = d["payment_state"]
++                    state = "SUCCEEDED"
+                 if d["cancel_requested"] and value["status"]=="CREATED":
+                     insert_operation(conn,d,"VOID",resource_path("authorization",provider_id)+"/void",{})
+             elif o["kind"] == "CAPTURE":
+@@ -307,6 +364,8 @@
+                     payment,state = d["payment_state"],"SUCCEEDED"
+                 if d["payment_state"] in ("REFUNDED","PARTIALLY_REFUNDED","REVERSED") and status == "COMPLETED":
+                     payment = d["payment_state"]
++                if d["payment_state"] in ("REFUNDED", "REVERSED") and status == "PARTIALLY_REFUNDED":
++                    payment = d["payment_state"]
+                 conn.execute("UPDATE deals SET capture_id=%s WHERE id=%s",(provider_id,d["id"]))
+             else:
+                 if value.get("status") not in ("VOIDED","EXPIRED"):
+@@ -324,6 +383,9 @@
+     async def execute(self,claim):
+         try:
+             observed = await self.recover(claim)
++            if isinstance(observed, UnavailableAuthorization):
++                self.authorization_unavailable(claim, observed.resource)
++                return
+             if observed:
+                 self.finish(claim,observed)
+                 return
+@@ -371,23 +433,27 @@
+                  ORDER BY verified_at LIMIT 20 FOR UPDATE SKIP LOCKED""",(self.clock(),)).fetchall()
+             for row in rows:
+                 event = row["event"]
+-                resource = event.get("resource",{})
+-                related = resource.get("supplementary_data",{}).get("related_ids",{})
+-                resource_id = resource.get("id","")
++                ids = event_resource_ids(event)
+                 deals = conn.execute("""SELECT * FROM deals WHERE order_id=%s OR authorization_id=%s
+-                    OR authorization_id=%s OR capture_id=%s OR capture_id=%s FOR UPDATE""",
+-                    (related.get("order_id"),related.get("authorization_id"),resource_id,resource_id,related.get("capture_id"))).fetchall()
++                    OR capture_id=%s FOR UPDATE""",
++                    (ids["order"], ids["authorization"], ids["capture"])).fetchall()
+                 if not deals:
+                     conn.execute("UPDATE webhook_inbox SET attempts=attempts+1,next_attempt_at=%s WHERE event_id=%s",
+                                  (self.clock()+timedelta(seconds=60),row["event_id"]))
+                     continue  # May arrive before the operation response has been persisted.
++                # A worker may already hold an older provider snapshot. Consuming
++                # this event now would lose the only wakeup after it commits that
++                # snapshot. Retain the inbox event until all matching deals are idle.
++                if any(d["active_operation"] for d in deals):
++                    conn.execute("UPDATE webhook_inbox SET next_attempt_at=%s WHERE event_id=%s",
++                                 (self.clock() + timedelta(seconds=1), row["event_id"]))
++                    continue
+                 for d in deals:
+-                    if not d["active_operation"]:
+-                        kind = "CAPTURE" if event.get("event_type","").startswith("PAYMENT.CAPTURE.") else "AUTHORIZE"
+-                        conn.execute("""UPDATE operations SET state='RECONCILING',next_attempt_at=%s
+-                          WHERE deal_id=%s AND kind=%s AND first_dispatch_at IS NOT NULL
+-                          AND (kind='CAPTURE' OR state<>'SUCCEEDED' OR %s='PAYMENT.AUTHORIZATION.VOIDED')""",
+-                          (self.clock(),d["id"],kind,event.get("event_type","")))
++                    kind = "CAPTURE" if event.get("event_type","").startswith("PAYMENT.CAPTURE.") else "AUTHORIZE"
++                    conn.execute("""UPDATE operations SET state='RECONCILING',next_attempt_at=%s
++                      WHERE deal_id=%s AND kind=%s AND first_dispatch_at IS NOT NULL
++                      AND (kind='CAPTURE' OR state<>'SUCCEEDED' OR %s='PAYMENT.AUTHORIZATION.VOIDED')""",
++                      (self.clock(),d["id"],kind,event.get("event_type","")))
+                 conn.execute("UPDATE webhook_inbox SET processed_at=%s WHERE event_id=%s",(self.clock(),row["event_id"]))
+ 
+     def expire_fulfillment(self):
+--- /dev/null
++++ b/tests/test_sentinel_regressions.py
+@@ -0,0 +1,223 @@
++"""Regression cases found by the Sentinel audit; provider behavior remains doubled."""
++import copy
++
++import pytest
++from psycopg.types.json import Jsonb
++
++from accord.coordinator import Conflict
++from accord.db import uid
++from accord.worker import Worker
++from accord.paypal import event_resource_ids
++from accord.evidence import review_interpretation
++from tests.test_evidence import specimen
++from tests.test_operations import get, payment, run, setup_authorized
++from tests.fake_paypal import FakePayPal
++from accord.coordinator import Coordinator
++
++
++def inbox(db, event):
++    with db.tx() as conn:
++        conn.execute(
++            "INSERT INTO webhook_inbox(event_id,raw_body,event) VALUES(%s,%s,%s)",
++            (event["id"], b"verified-test-fixture", Jsonb(event)),
++        )
++
++
++def test_webhook_arriving_during_claim_is_not_consumed_without_wakeup(db, deal, clock):
++    c, w, p = setup_authorized(db, deal, clock)
++    c.queue_capture(deal["id"])
++    run(w.run_once())
++    old_snapshot = copy.deepcopy(p.capture)
++    with db.tx() as conn:
++        conn.execute(
++            "UPDATE operations SET state='RECONCILING',next_attempt_at=%s WHERE deal_id=%s AND kind='CAPTURE'",
++            (clock(), deal["id"]),
++        )
++    claim = w.claim()
++    assert claim
++    p.capture["status"] = "REFUNDED"
++    event = {"id": uid(), "event_type": "PAYMENT.CAPTURE.REFUNDED", "resource": {
++        "id": "REFUND1", "supplementary_data": {"related_ids": {
++            "order_id": "ORDER1", "capture_id": "CAPTURE1"}},
++    }}
++    inbox(db, event)
++    w.wake_webhooks()
++    with db.tx() as conn:
++        assert conn.execute("SELECT processed_at FROM webhook_inbox WHERE event_id=%s", (event["id"],)).fetchone()["processed_at"] is None
++    # The slow reader finishes with the snapshot it obtained before the refund.
++    assert w.finish(claim, old_snapshot)
++    clock.advance(2)
++    w.wake_webhooks()
++    run(w.run_once())
++    assert payment(db, deal["id"])["payment_state"] == "REFUNDED"
++
++
++def test_refund_with_capture_up_link_wakes_canonical_capture_read(db, deal, clock):
++    c, w, p = setup_authorized(db, deal, clock)
++    c.queue_capture(deal["id"])
++    run(w.run_once())
++    p.capture["status"] = "PARTIALLY_REFUNDED"
++    event = {"id": uid(), "event_type": "PAYMENT.CAPTURE.REFUNDED", "resource_type": "refund", "resource": {
++        "id": "REFUND1", "status": "COMPLETED", "amount": {"currency_code": "USD", "value": "50.00"},
++        "links": [{"rel": "up", "method": "GET", "href": "https://api.sandbox.paypal.com/v2/payments/captures/CAPTURE1"}],
++    }}
++    inbox(db, event)
++    w.wake_webhooks()
++    assert get(db, deal["id"], "CAPTURE")["state"] == "RECONCILING"
++    run(w.run_once())
++    assert payment(db, deal["id"])["payment_state"] == "PARTIALLY_REFUNDED"
++    assert not any("refunds/REFUND1" in call[1] for call in p.calls)
++
++
++def test_pending_authorization_keeps_polling_until_ready(db, deal, clock):
++    c, p = Coordinator(db, clock), FakePayPal(deal, clock)
++    w = Worker(db, p, clock)
++    c.queue_create(deal["id"])
++    run(w.run_once())
++    original = p.get
++
++    async def pending_auth(path):
++        value = await original(path)
++        if "/authorizations/" in path:
++            value["status"] = "PENDING"
++        return value
++
++    p.get = pending_auth
++    c.queue_authorize(deal["id"])
++    run(w.run_once())
++    assert get(db, deal["id"], "AUTHORIZE")["state"] == "PENDING"
++    assert payment(db, deal["id"])["payment_state"] == "AUTHORIZATION_PENDING"
++    with pytest.raises(Conflict):
++        c.queue_capture(deal["id"])
++    p.get = original
++    clock.advance()
++    run(w.run_once())
++    assert payment(db, deal["id"])["payment_state"] == "AUTHORIZED"
++    assert len([x for x in p.calls if x[0] == "POST" and x[1].endswith("/authorize")]) == 1
++
++
++def test_confirmed_voided_authorization_cannot_queue_capture(db, deal, clock):
++    c, w, p = setup_authorized(db, deal, clock)
++    p.auth["status"] = "VOIDED"
++    event = {"id": uid(), "event_type": "PAYMENT.AUTHORIZATION.VOIDED", "resource": p.auth}
++    inbox(db, event)
++    w.wake_webhooks()
++    run(w.run_once())
++    assert payment(db, deal["id"])["payment_state"] == "VOIDED"
++    with pytest.raises(Conflict):
++        c.queue_capture(deal["id"])
++
++
++def test_external_void_after_queue_is_observed_before_capture_post(db, deal, clock):
++    c, w, p = setup_authorized(db, deal, clock)
++    c.queue_capture(deal["id"])
++    # The merchant changed the provider resource outside ACCORD; no webhook yet.
++    p.auth["status"] = "VOIDED"
++    run(w.run_once())
++    assert not any(x[0] == "POST" and x[1].endswith("/capture") for x in p.calls)
++    assert get(db, deal["id"], "CAPTURE")["state"] == "BLOCKED"
++    assert payment(db, deal["id"])["payment_state"] == "VOIDED"
++
++
++def test_full_refund_does_not_regress_to_partial_refund(db, deal, clock):
++    c, w, p = setup_authorized(db, deal, clock)
++    c.queue_capture(deal["id"])
++    run(w.run_once())
++    p.capture["status"] = "REFUNDED"
++    for status, expected in (("REFUNDED", "REFUNDED"), ("PARTIALLY_REFUNDED", "REFUNDED")):
++        p.capture["status"] = status
++        event = {"id": uid(), "event_type": "PAYMENT.CAPTURE.REFUNDED", "resource": {
++            "id": "REFUND1", "supplementary_data": {"related_ids": {"capture_id": "CAPTURE1"}},
++        }}
++        inbox(db, event)
++        w.wake_webhooks()
++        run(w.run_once())
++        assert payment(db, deal["id"])["payment_state"] == expected
++
++
++def test_queued_capture_waits_for_authorization_pending_then_ready(db, deal, clock):
++    c, w, p = setup_authorized(db, deal, clock)
++    c.queue_capture(deal["id"])
++    p.auth["status"] = "PENDING"
++    run(w.run_once())
++    assert get(db, deal["id"], "CAPTURE")["state"] == "PENDING"
++    assert payment(db, deal["id"])["payment_state"] == "AUTHORIZATION_PENDING"
++    assert not any(x[0] == "POST" and x[1].endswith("/capture") for x in p.calls)
++    p.auth["status"] = "CREATED"
++    clock.advance()
++    run(w.run_once())
++    assert payment(db, deal["id"])["payment_state"] == "CAPTURED"
++
++
++def test_consumed_authorization_with_invisible_capture_does_not_trigger_post_retry(db, deal, clock):
++    c, w, p = setup_authorized(db, deal, clock)
++    p.hide_order_capture = True
++    p.drop.add("/v2/payments/authorizations/AUTH1/capture")
++    c.queue_capture(deal["id"])
++    run(w.run_once())
++    p.auth["status"] = "CAPTURED"
++    clock.advance()
++    run(w.run_once())
++    assert get(db, deal["id"], "CAPTURE")["state"] == "RECONCILING"
++    assert payment(db, deal["id"])["capture_id"] is None
++    assert len([x for x in p.calls if x[0] == "POST" and x[1].endswith("/capture")]) == 1
++
++
++def test_denied_authorization_is_observed_and_cannot_capture(db, deal, clock):
++    c, p = Coordinator(db, clock), FakePayPal(deal, clock)
++    w = Worker(db, p, clock)
++    c.queue_create(deal["id"])
++    run(w.run_once())
++    original = p.get
++
++    async def denied(path):
++        value = await original(path)
++        if "/authorizations/" in path:
++            value["status"] = "DENIED"
++        return value
++
++    p.get = denied
++    c.queue_authorize(deal["id"])
++    run(w.run_once())
++    assert get(db, deal["id"], "AUTHORIZE")["state"] == "FAILED"
++    assert payment(db, deal["id"])["payment_state"] == "AUTHORIZATION_DENIED"
++    with pytest.raises(Conflict):
++        c.queue_capture(deal["id"])
++
++
++@pytest.mark.parametrize("href", [
++    "http://api.sandbox.paypal.com/v2/payments/captures/CAPTURE1",
++    "https://api-m.paypal.com/v2/payments/captures/CAPTURE1",
++    "https://api.sandbox.paypal.com.evil.invalid/v2/payments/captures/CAPTURE1",
++    "https://user@api.sandbox.paypal.com/v2/payments/captures/CAPTURE1",
++    "https://api.sandbox.paypal.com:8443/v2/payments/captures/CAPTURE1",
++    "https://api.sandbox.paypal.com/v2/payments/captures/CAPTURE1?redirect=elsewhere",
++])
++def test_refund_link_correlation_rejects_unsafe_or_wrong_environment_url(href):
++    event = {"event_type": "PAYMENT.CAPTURE.REFUNDED", "resource": {
++        "id": "REFUND1", "links": [{"rel": "up", "href": href}],
++    }}
++    with pytest.raises(ValueError):
++        event_resource_ids(event)
++
++
++def test_refund_link_conflicting_with_related_id_is_rejected():
++    event = {"event_type": "PAYMENT.CAPTURE.REFUNDED", "resource": {
++        "id": "REFUND1", "supplementary_data": {"related_ids": {"capture_id": "CAPTURE2"}},
++        "links": [{"rel": "up", "href": "https://api-m.sandbox.paypal.com/v2/payments/captures/CAPTURE1"}],
++    }}
++    with pytest.raises(ValueError, match="Conflicting"):
++        event_resource_ids(event)
++
++
++def test_buyer_review_cannot_relabel_recognized_wrong_grade(db, deal):
++    c = Coordinator(db)
++    identity = c.add_document(deal["id"], deal["supplier_id"], "supplier", "certificate", b"%PDF-fixture")
++    doc, finding = specimen("PO: PO-001\nLot: LOT-001\nRequired grade: 316L\nDelivered grade: 304", value="316L")
++    with db.tx() as conn:
++        document = conn.execute("SELECT version FROM documents WHERE id=%s", (identity,)).fetchone()
++        conn.execute("UPDATE documents SET parsed=%s WHERE id=%s", (Jsonb(doc["parsed"]), identity))
++    finding = finding.model_copy(update={"document_id": identity, "document_version": document["version"]})
++    with pytest.raises(Conflict, match="recognized delivered value"):
++        review_interpretation(db, deal["id"], deal["buyer_id"], finding,
++                              "I selected 316L from the requirement text.")

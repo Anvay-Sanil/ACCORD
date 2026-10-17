@@ -1,12 +1,14 @@
-# ACCORD — Phase 3 payment foundation
+# ACCORD — Phase 3 buyer/supplier journey
+
+**18 October review:** 78 real-PostgreSQL regressions and eight Chromium assertions passed. Browser PayPal/model responses are explicit doubles. Real PayPal, model and Linux gates remain outstanding. For deployment, use [Render setup](RENDER_JOURNEY_UPDATE.md).
 
 **ACCORD checks delivery paperwork against approved requirements before a supplier captures a PayPal payment.**
 
-This package contains the backend, migrations, payment worker, extraction worker, webhook handler, and executable tests. It is a Sandbox-only implementation for review. The React checkout/review interface, deployment, submission materials, and real-provider acceptance are outside this delivered phase. See `VERIFICATION.md` for what was actually exercised.
+This package contains the runnable buyer/supplier interface, payment backend, migrations, separate payment and extraction workers, webhook handler, and executable acceptance scripts. It is a Sandbox-only implementation for review. The interface is served directly by FastAPI and uses plain JavaScript; no frontend build step is needed. Start with [JOURNEY.md](JOURNEY.md) and the current [Sentinel review](SENTINEL_JOURNEY_REVIEW.md). Phase 3 remains conditional and Phase 4 is unopened.
 
 ## Sentinel review amendments
 
-The revised payment foundation passes **71 local tests using real PostgreSQL**. Seven failure scenarios in the original implementation were reproduced and corrected. See `SENTINEL_REVIEW.md`, `sentinel.patch`, and `VERIFICATION.md` for the findings, complete diff, and verification boundaries.
+The accepted foundation had **71 local tests using real PostgreSQL**. Seven failure scenarios in the original implementation were reproduced and corrected. See `SENTINEL_REVIEW.md`, `sentinel.patch`, and `VERIFICATION.md` for that baseline. The journey adds workspace access tests and acceptance-record validation; current run counts are in `JOURNEY_ACCEPTANCE.md`.
 
 - Verified webhooks remain pending while a matching deal has an active worker; an older reader cannot consume the event's only wakeup.
 - Refund resources may correlate through a validated Sandbox capture `up` link. The code extracts its ID and constructs a fixed-base resource request; it never fetches a webhook-supplied URL or mistakes a refund ID for a capture ID.

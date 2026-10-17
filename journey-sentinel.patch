@@ -1,0 +1,88 @@
+--- a/accord/web/app.js
++++ b/accord/web/app.js
+@@ -1,6 +1,6 @@
+ "use strict";
+ const $ = id => document.getElementById(id);
+-const state = {csrf:null,role:null,dealId:null,data:null,documentId:null,detail:null,epoch:0,polling:false,config:null};
++const state = {csrf:null,role:null,dealId:null,data:null,documentId:null,detail:null,epoch:0,inspection:0,polling:false,config:null};
+ const labels = {AWAITING_BUYER:"Awaiting approval",CREATING_ORDER:"Preparing checkout",AUTHORIZING:"Authorizing",
+   AUTHORIZED:"Authorized · not captured",AUTHORIZATION_PENDING:"Authorization pending",AUTHORIZATION_DENIED:"Authorization denied",
+   CAPTURING:"Capture in progress",CAPTURE_PENDING:"Capture pending",CAPTURED:"Capture confirmed",CAPTURE_FAILED:"Capture failed",
+@@ -68,8 +68,14 @@
+   updateReviewControls();
+ }
+ async function inspect(id){
+-  const dealId=state.dealId,epoch=state.epoch;const detail=await api(route(`documents/${id}/findings`));if(epoch!==state.epoch||dealId!==state.dealId)return;
+-  if(state.documentId!==id)$("review-reason").value="";
++  const dealId=state.dealId,epoch=state.epoch,inspection=++state.inspection;
++  if(state.documentId!==id){
++    state.documentId=id;state.detail=null;$("review-reason").value="";$("replacement-check").checked=false;
++    $("document-title").textContent="Loading document…";$("document-meta").textContent="";$("finding-summary").replaceChildren();
++    $("passage").textContent="Loading document passages…";$("versions").textContent="";$("download").hidden=true;render();
++  }
++  const detail=await api(route(`documents/${id}/findings`));
++  if(epoch!==state.epoch||dealId!==state.dealId||inspection!==state.inspection||id!==state.documentId)return;
+   state.documentId=id;const doc=state.data.documents.find(d=>d.id===id);state.detail={...detail,signature:JSON.stringify([doc.parse_state,doc.extraction])};
+   $("document-title").textContent=`v${doc.version} · ${doc.kind}`;$("document-meta").textContent=`${doc.parse_state} · SHA-256 ${doc.sha256}`;
+   const findings=detail.extraction?.proposal?.findings||[];$("finding-summary").replaceChildren();for(const f of findings){$("finding-summary").append(node("div",`${f.field}: ${f.value} · ${f.purchase_order} · ${f.lot}`,"finding"));}
+--- a/acceptance/browser_proof.py
++++ b/acceptance/browser_proof.py
+@@ -128,12 +128,24 @@
+             sp.locator("#document-file").set_input_files(str(fixtures/"wrong-grade.pdf"));sp.get_by_role("button",name="Upload PDF",exact=True).click()
+             bp.locator("#document-file").set_input_files(str(fixtures/"receipt.pdf"));bp.get_by_role("button",name="Upload PDF",exact=True).click()
+             bp.locator("#received-check").check();bp.locator("#acknowledge").click()
++            expect(bp.locator("#documents")).to_contain_text("delivery_received: YES",timeout=45000)
++            expect(bp.locator("#acknowledge")).to_be_disabled()
++            ready=bp.evaluate("async()=>api(route('workspace'))")
++            assert ready["deal"]["delivery_ack"] and ready["deal"]["buyer_approved"] and ready["deal"]["supplier_approved"]
++            assert ready["deal"]["authorization_id"]
++            assert {d["kind"] for d in ready["documents"] if d["active"]}=={"certificate","receipt"}
++            assert all(d["parse_state"]=="READY" for d in ready["documents"] if d["active"])
++            sp.locator("#refresh").click()
+             expect(sp.locator("#documents")).to_contain_text("delivered_grade: 304",timeout=45000)
+             sp.locator("#evaluate").click();expect(sp.locator("#decision-state")).to_have_text("Review required")
+             expect(sp.locator("#capture")).to_be_disabled()
+             assert not any(c[0]=="POST" and c[1].endswith("/capture") for c in provider.calls)
+-            sp.locator(".document-row").filter(has_text="certificate").first.click();sp.screenshot(path=str(out/"01-wrong-evidence-blocked.png"),full_page=True)
+-            record("Required 316L / delivered 304 is visible in the browser; capture is disabled and zero capture POSTs occurred.")
++            sp.locator(".document-row").filter(has_text="certificate").first.click()
++            expect(sp.locator("#passage")).to_contain_text("316L")
++            expect(sp.locator("#passage")).to_contain_text("304")
++            expect(sp.locator("#finding-summary")).to_contain_text("delivered_grade: 304")
++            sp.screenshot(path=str(out/"01-wrong-evidence-blocked.png"),full_page=True)
++            record("Both documents are READY, delivery is acknowledged and both mandates approved; cited required 316L / delivered 304 is visible, capture is disabled and zero capture POSTs occurred.")
+             bp.locator("#refresh").click();bp.locator(".document-row").filter(has_text="certificate").first.click()
+             bp.locator("#review-value").fill("316L");bp.locator("#review-spans").select_option([o.get_attribute("value") for o in bp.locator("#review-spans option").all()])
+             bp.locator("#review-reason").fill("Attempted relabeling of the required value for this acceptance test.");bp.get_by_role("button",name="Record interpretation",exact=True).click()
+@@ -145,8 +157,30 @@
+             provider.before_post=hold_after_capture
+             sp.locator("#document-file").set_input_files(str(fixtures/"valid-table.pdf"));sp.get_by_role("button",name="Upload PDF",exact=True).click()
+             expect(sp.locator("#documents")).to_contain_text("delivered_grade: 316L",timeout=45000)
+-            bp.locator("#refresh").click();bp.locator(".document-row").filter(has_text="certificate").first.click()
++            bp.locator("#refresh").click();bp.locator(".document-row").filter(has_text="delivered_grade: 316L").click()
+             expect(bp.locator("#passage")).to_contain_text("PO-001 | LOT-001 | 316L")
++            latest=bp.evaluate("state.documentId")
++            latest_title=bp.locator("#document-title").inner_text()
++            previous=bp.evaluate("state.data.documents.find(d=>d.kind==='certificate'&&d.id!==state.documentId).id")
++            held=[];old_findings=f"{origin}/api/deals/{identity}/documents/{previous}/findings"
++            bp.route(old_findings,lambda route:held.append(route))
++            bp.locator(f'[data-document-id="{previous}"]').click()
++            for _ in range(50):
++                if held:break
++                bp.wait_for_timeout(100)
++            assert held,"The controlled old-document request was not intercepted"
++            with bp.expect_response(f"{origin}/api/deals/{identity}/documents/{latest}/findings") as newer:
++                bp.locator(f'[data-document-id="{latest}"]').click()
++            newer.value.body();bp.wait_for_timeout(100)
++            expect(bp.locator("#passage")).to_contain_text("PO-001 | LOT-001 | 316L")
++            with bp.expect_response(old_findings) as released:
++                held[0].continue_()
++            released.value.body();bp.wait_for_timeout(250)
++            expect(bp.locator("#document-title")).to_have_text(latest_title)
++            expect(bp.locator("#passage")).to_contain_text("PO-001 | LOT-001 | 316L")
++            assert bp.evaluate("state.documentId")==latest
++            bp.unroute(old_findings)
++            record("A deliberately delayed older-document response cannot replace the buyer's latest selected certificate or passages.")
+             expect(bp.locator("#replace")).to_be_disabled();bp.locator("#replacement-check").check();bp.locator("#replace").click()
+             expect(bp.locator("#decision-state")).to_have_text("Requirements passed",timeout=30000)
+             expect(bp.locator("#payment-state")).to_have_text("Reconciling",timeout=30000)

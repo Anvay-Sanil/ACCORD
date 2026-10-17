@@ -1,0 +1,333 @@
+{
+  "baseline_sha256": "c32a12714ab89ee69cd1de782f27efe17daf121d95c641b8ae54d87b756e1fec",
+  "source_archive_sha256": "514aea62d1f0d3d4248846a058c8aad4d8c6bdf50a34f64289216ec4907c25b1",
+  "phase": "3 conditional; Phase 4 unopened",
+  "package": "GitHub upload source; acceptance recordings excluded",
+  "files": [
+    {
+      "path": ".dockerignore",
+      "sha256": "4d275158785d737a3526ee4188e2f14e76cd4c9f248deb8c141642c6309a2151",
+      "bytes": 146
+    },
+    {
+      "path": ".env.example",
+      "sha256": "e078b90f1e367e07787b0ee5b8d234952ed813870ef6d6a90540b59be76e1651",
+      "bytes": 1177
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "694a8343fc8485cf72403aadbe7c597ed68e83a10d133e913c7ea1eda4b37248",
+      "bytes": 109
+    },
+    {
+      "path": "ARCHITECT_VERIFICATION.md",
+      "sha256": "7cd1a486ff8ae6ea020e59f440fcebcfb25502017097dabd7beb77cff513b260",
+      "bytes": 5151
+    },
+    {
+      "path": "Dockerfile",
+      "sha256": "791d8c7ad57a35dcce0ccd12b5131bd58b08381d273d50b0d45d7e7bc69c1691",
+      "bytes": 306
+    },
+    {
+      "path": "JOURNEY.md",
+      "sha256": "d8c13c904d08622380455142a09ae04ba69f77c7d07147312cfdcf71f4ed2f13",
+      "bytes": 10913
+    },
+    {
+      "path": "JOURNEY_ACCEPTANCE.md",
+      "sha256": "c60816b88a1a00eb9f6053c7a3112310e15247c88b4194c5841d4f72f815d543",
+      "bytes": 8238
+    },
+    {
+      "path": "README.md",
+      "sha256": "53eb8d3795529715385df765bbc2cb68a56d17969489857071f09853561ba5f6",
+      "bytes": 22863
+    },
+    {
+      "path": "RENDER_JOURNEY_UPDATE.md",
+      "sha256": "990e796d683f734df6d9334ecee9d7972ed8c5e032aab24460547122d3ca87a5",
+      "bytes": 4497
+    },
+    {
+      "path": "SENTINEL_JOURNEY_REVIEW.md",
+      "sha256": "801c15ec32d2c46f1169acf2462e2a402a435ae6ed2476401cdd56ab6cb54f2c",
+      "bytes": 7026
+    },
+    {
+      "path": "SENTINEL_REVIEW.md",
+      "sha256": "ebbff6e46303c49c5b0c37b1712e4a83ef08cf7e25e71662186330afa35ce824",
+      "bytes": 12138
+    },
+    {
+      "path": "UPLOAD_NOTE.md",
+      "sha256": "38f7f3d3c53bd22a542f213515285a8225a34ddaebc3b6d39a0c31af5bacb8ae",
+      "bytes": 348
+    },
+    {
+      "path": "VERIFICATION.md",
+      "sha256": "55a842191114ff0d69e7f6187d17914e013989bd982c4811c7143fd4226d104b",
+      "bytes": 3461
+    },
+    {
+      "path": "acceptance/Dockerfile",
+      "sha256": "55a52632790e7732e22555e1cf2c07feaf9368286340293db09a0cae7024adfe",
+      "bytes": 281
+    },
+    {
+      "path": "acceptance/__init__.py",
+      "sha256": "4fdcfa12255c7016d7d83b7c24fe11cba3184a52f0aaf8db10a1f8f7b348424e",
+      "bytes": 89
+    },
+    {
+      "path": "acceptance/bootstrap.py",
+      "sha256": "3cbe0a38cdb0df48095232a31f5544a5683a65522886a8f8261a3ad9eb73d2dc",
+      "bytes": 4254
+    },
+    {
+      "path": "acceptance/browser_proof.py",
+      "sha256": "ad75c3381b79e948c9b606b51a8a6785d40b8cd108529de60cf8d89d62edce21",
+      "bytes": 15738
+    },
+    {
+      "path": "acceptance/docker_run.py",
+      "sha256": "a5517035a183c7c29f8cfca394637c2182c254fa1eee1f0e75e7176c37be8ee7",
+      "bytes": 2018
+    },
+    {
+      "path": "acceptance/duplicate_proof.py",
+      "sha256": "de6609bcdae24fe4c2dd715c833df87fcc784e56e5e7c091a0e1fd1732c7c39f",
+      "bytes": 2695
+    },
+    {
+      "path": "acceptance/fixtures.py",
+      "sha256": "5ccee3bf3b53584e5c26a64c8686d0bba3ce1466268be14c082972f4f31e5cf4",
+      "bytes": 2733
+    },
+    {
+      "path": "acceptance/linux_proof.py",
+      "sha256": "3cdac9831127e2e88cb989a95040e04cb49c99b0813723f80bac7d5753092b80",
+      "bytes": 1878
+    },
+    {
+      "path": "acceptance/model_proof.py",
+      "sha256": "52423d33a1b513eb9b550dffe14ee602050134c9eae06088b4f5b3ca2b1cadef",
+      "bytes": 3888
+    },
+    {
+      "path": "acceptance/parser_limits.py",
+      "sha256": "095d3e9f9d6f322ad2ed1fb3766f2b6a97580c66802fb4b6e5a26faa4c2a7fd6",
+      "bytes": 1796
+    },
+    {
+      "path": "acceptance/paypal_proof.py",
+      "sha256": "72dc516f3ec165edf8b35c97642df098afe446753643e1e312fb32e26f3bb1e7",
+      "bytes": 7573
+    },
+    {
+      "path": "acceptance/preflight.py",
+      "sha256": "65d2035af7a405d48e8335d1069971fef2664b16d356f4ee56d5f1192c9fbf50",
+      "bytes": 2214
+    },
+    {
+      "path": "acceptance/process_recovery.py",
+      "sha256": "9d10d14bb293eccf829af269b14f60c02b6932f738341da31d0266d3ce518884",
+      "bytes": 6577
+    },
+    {
+      "path": "accord/__init__.py",
+      "sha256": "282509c5a0a01f66bb97f1e70db2b58e2a5619c0141adec40e04011a0b9c5ad0",
+      "bytes": 49
+    },
+    {
+      "path": "accord/api.py",
+      "sha256": "6d7a4208643697f1a7f78c2559eff6595390b1aa1e8c7036db762c2e5048cb9e",
+      "bytes": 17055
+    },
+    {
+      "path": "accord/config.py",
+      "sha256": "6b189416cb16370554f73f99e7a674e20eb3d2b22d267685b7335fca2fb19479",
+      "bytes": 1465
+    },
+    {
+      "path": "accord/contract.py",
+      "sha256": "4eb33ac412c2a692a0ba51a3c907fb765892f2638ec72bf47db20db1fa125b5d",
+      "bytes": 1359
+    },
+    {
+      "path": "accord/coordinator.py",
+      "sha256": "4fa6c477bdbf01e3ea9454d2a6d8068ab019cca11d092a91cbfd2018d5111894",
+      "bytes": 8924
+    },
+    {
+      "path": "accord/db.py",
+      "sha256": "e6b05d93fc74bc592052582fb47b9eff0399729a3461ac116e1c373e56b0bb8e",
+      "bytes": 1076
+    },
+    {
+      "path": "accord/evidence.py",
+      "sha256": "07c3f8338168bb414f27d1deb7c69d5c5e340ec3dd38711399e75d3ae6b2994c",
+      "bytes": 10413
+    },
+    {
+      "path": "accord/extraction_worker.py",
+      "sha256": "497abe985b07bfeba0bcafdbd15f5c4df1a0bd26906c3aecfc62c327689a35fb",
+      "bytes": 5179
+    },
+    {
+      "path": "accord/parser.py",
+      "sha256": "07a0d937469aa8b98715923155932f582532aa442572ac8f8dc2ae91458b1b05",
+      "bytes": 1383
+    },
+    {
+      "path": "accord/paypal.py",
+      "sha256": "56d7829ae2826a6a97b9ca16e991c809262dccda538f46bdd7dcf2cfde2fde37",
+      "bytes": 8852
+    },
+    {
+      "path": "accord/pdf_child.py",
+      "sha256": "847ae960c60be5f6b7926fc05676fc51e3e6df80759773c8276271ad70f37055",
+      "bytes": 3494
+    },
+    {
+      "path": "accord/provision_db.py",
+      "sha256": "c5cbffcb03adb0b9ff072856b49af6524759cb7fbe464d6a013ed25eedf86a88",
+      "bytes": 1602
+    },
+    {
+      "path": "accord/seed.py",
+      "sha256": "d89a7ccdbdbe5cb7428013272f6d8d12a731f436ab2d2421e53cb67ac9ee5c7d",
+      "bytes": 2214
+    },
+    {
+      "path": "accord/web/app.js",
+      "sha256": "def903acbb3c413331df2fca74030b7e8deb9aaa894c97a9aecbbc042e3b947d",
+      "bytes": 16099
+    },
+    {
+      "path": "accord/web/index.html",
+      "sha256": "a67ccf68b4b8f5aa0436df3386def5abb2add6f4b5c1c3234fe68d1832b4a3f8",
+      "bytes": 6410
+    },
+    {
+      "path": "accord/web/style.css",
+      "sha256": "b4f0884f638aa34e2e9d2a55c018a7044d2e3cd23a19ecdcb22efb274171ff4f",
+      "bytes": 6044
+    },
+    {
+      "path": "accord/worker.py",
+      "sha256": "d286456c88e415432e8c5df03e27e9203c3f289fcb1da40ff782c823833ceb8c",
+      "bytes": 27441
+    },
+    {
+      "path": "alembic.ini",
+      "sha256": "55f6227b037e8558031bdca3ace12a01bd14b7fea0df8d7285d35a508c04a671",
+      "bytes": 80
+    },
+    {
+      "path": "compose.acceptance.yaml",
+      "sha256": "2ae501c751421a00a455dcae8ff1512456262a6e721c70044a36283d794837a6",
+      "bytes": 970
+    },
+    {
+      "path": "compose.yaml",
+      "sha256": "f43821ceb51baa617c99cdff6c0a319ef05c4c1d7ab3873d3c9dc194a31833cf",
+      "bytes": 2462
+    },
+    {
+      "path": "journey-sentinel.patch",
+      "sha256": "d4094d2bb010a6ec5393fef1cb77c3beeacc4e83af6c60da369aa3e6b09920b1",
+      "bytes": 7662
+    },
+    {
+      "path": "migrations/env.py",
+      "sha256": "50394178256fabbdb5ff1e2a79e217b23006f8ba0dadef71f0baf2887c9e7d6d",
+      "bytes": 462
+    },
+    {
+      "path": "migrations/versions/0001_foundation.py",
+      "sha256": "2f1ef7b3956c0e435993f8a9687de3c5fd9a8f16fb73a2f2ef92e4367ec23dfd",
+      "bytes": 7205
+    },
+    {
+      "path": "migrations/versions/0002_recovery_and_extraction_history.py",
+      "sha256": "96590a330d4b849b968391429034ef45ff9ec1257f50865da675baa9b928f5d5",
+      "bytes": 820
+    },
+    {
+      "path": "migrations/versions/0003_webhook_acceptance_evidence.py",
+      "sha256": "898f8c5956d5c60025575edd085a5772edef6773a9a208be49adad2b4dfc6ee7",
+      "bytes": 453
+    },
+    {
+      "path": "requirements.acceptance.txt",
+      "sha256": "92be312c9d892e50641a61ec0ac2a41d2b5186919b858124160dc5b1aeb228db",
+      "bytes": 48
+    },
+    {
+      "path": "requirements.lock",
+      "sha256": "82acb7019c260bd3b864f4c0f59e982d8f379d9c8f193a4662c55fbc55b102ac",
+      "bytes": 825
+    },
+    {
+      "path": "sentinel.patch",
+      "sha256": "79b0515c5287368c363f1314721ff5e871ed988216ac2aa234315c1dee029d6b",
+      "bytes": 29558
+    },
+    {
+      "path": "tests/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "tests/conftest.py",
+      "sha256": "17fc607e21e70300285fc2672df4936dfd6bc2e69569c472974e7737f8b1f67e",
+      "bytes": 3604
+    },
+    {
+      "path": "tests/fake_paypal.py",
+      "sha256": "d6e4a5ec17a98b0f7dc2895e579fde6ce3db96d5e538e378a90bd8009b81ebad",
+      "bytes": 3059
+    },
+    {
+      "path": "tests/test_acceptance_records.py",
+      "sha256": "8b0adde55c1d8bd3a44c87d60dac90a5d3f60238b9b912ec8f4ff5e33cefae97",
+      "bytes": 1931
+    },
+    {
+      "path": "tests/test_additional_recovery.py",
+      "sha256": "f1255d43792eaac35e4fb94c6839e6b8814dec83545e067091e6d081cf250912",
+      "bytes": 5319
+    },
+    {
+      "path": "tests/test_evidence.py",
+      "sha256": "c833b53a57c426ec3bf1c29456994341af9ee6ad7e1c694dccfa607ff665f4b3",
+      "bytes": 3693
+    },
+    {
+      "path": "tests/test_final_guards.py",
+      "sha256": "dd5c6726ec57507d4315c6cd5bb82af01125a0f66d8a039ee52cd70f0dd3d4f3",
+      "bytes": 6120
+    },
+    {
+      "path": "tests/test_ingress.py",
+      "sha256": "87a43a7529b16e684019b86328b1ff93b89796390caa4774c7672466ca9c9e48",
+      "bytes": 7366
+    },
+    {
+      "path": "tests/test_journey.py",
+      "sha256": "013af9f78ddf4c0a657a4ee88da06e7613919cbed579209678f42a39627c518d",
+      "bytes": 3679
+    },
+    {
+      "path": "tests/test_operations.py",
+      "sha256": "23ffa2447183ec11c46a5705a6982db28c06e7454c4df1836596c643328ccffa",
+      "bytes": 8455
+    },
+    {
+      "path": "tests/test_sentinel_regressions.py",
+      "sha256": "938f91de09fcaa7bdbd434bb7e4255d7ac51810c69ccc7a4364072eae3ba70d6",
+      "bytes": 9350
+    }
+  ]
+}

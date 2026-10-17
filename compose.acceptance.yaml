@@ -1,0 +1,27 @@
+# Isolated, synthetic acceptance stack. No real PayPal/OpenAI credentials enter it.
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: accord_test_owner
+      POSTGRES_PASSWORD: local-acceptance-fixture-only
+      POSTGRES_DB: accord_test_linux
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U accord_test_owner -d accord_test_linux"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    volumes: ["acceptance_pg:/var/lib/postgresql/data"]
+  acceptance:
+    build:
+      context: .
+      dockerfile: acceptance/Dockerfile
+    environment:
+      TEST_DATABASE_URL: postgresql://accord_test_owner:local-acceptance-fixture-only@db:5432/accord_test_linux
+      DATABASE_URL: postgresql://accord_test_owner:local-acceptance-fixture-only@db:5432/accord_test_linux
+    depends_on:
+      db: {condition: service_healthy}
+    volumes: ["./acceptance-record/linux:/app/acceptance-record/linux"]
+    shm_size: 1gb
+volumes:
+  acceptance_pg:
