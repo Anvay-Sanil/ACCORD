@@ -41,7 +41,7 @@ async def propose(config,document,parsed):
     proposal = Proposal.model_validate_json(text)
     return {"proposal":proposal.model_dump(),"versions":{"parser":parsed["parser"],"schema":SCHEMA_VERSION,
             "prompt":PROMPT_VERSION,"prompt_sha256":digest(PROMPT),"model":result.get("model",config.openai_model)},
-            "response_id":result.get("id")}
+            "response_id":result.get("id"),"provider_output":result.get("output"),"usage":result.get("usage")}
 
 
 async def once(db,config):

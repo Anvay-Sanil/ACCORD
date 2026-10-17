@@ -7,11 +7,13 @@ from datetime import timedelta
 from typing import Literal
 from urllib.parse import urlparse
 from uuid import UUID
+from pathlib import Path
 
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError, InvalidHashError
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from psycopg.types.json import Jsonb
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -95,6 +97,18 @@ def create_app(config: Settings | None=None,db=None,paypal=None):
         await paypal.close()
 
     app = FastAPI(title="ACCORD payment foundation",lifespan=lifespan)
+    web = Path(__file__).with_name("web")
+    app.mount("/assets",StaticFiles(directory=web),name="assets")
+
+    @app.get("/",include_in_schema=False)
+    def home():
+        return FileResponse(web/"index.html")
+
+    @app.get("/api/browser-config")
+    def browser_config():
+        return {"environment":"sandbox","label":config.provider_label,
+                "client_id":config.paypal_client_id,
+                "checkout_configured":bool(config.paypal_client_id and config.paypal_client_secret and config.paypal_merchant_id)}
     app.add_middleware(BodyLimit)
     app.add_middleware(TrustedHostMiddleware,allowed_hosts=[urlparse(config.app_origin).hostname])
 
@@ -108,6 +122,13 @@ def create_app(config: Settings | None=None,db=None,paypal=None):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Cache-Control"] = "no-store"
         response.headers["Referrer-Policy"] = "same-origin"
+        response.headers["X-Frame-Options"] = "DENY"
+        # No uploaded text is rendered as HTML. SDK is loaded from the fixed Sandbox origin.
+        response.headers.setdefault("Content-Security-Policy",(
+            "default-src 'self'; script-src 'self' https://*.paypal.com https://*.paypalobjects.com; "
+            "style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.paypal.com https://*.paypalobjects.com; "
+            "connect-src 'self' https://*.paypal.com https://*.paypalobjects.com; "
+            "frame-src https://*.paypal.com; frame-ancestors 'none'; base-uri 'none'; object-src 'none'; form-action 'self'"))
         if config.public_deployment:
             response.headers["Strict-Transport-Security"] = "max-age=31536000"
         return response
@@ -192,6 +213,29 @@ def create_app(config: Settings | None=None,db=None,paypal=None):
         with db.tx() as conn:
             ops = conn.execute("SELECT id,kind,state,provider_id,last_error,attempts FROM operations WHERE deal_id=%s",(deal_id,)).fetchall()
         return {"deal":{k:v for k,v in d.items() if k not in ("lease_generation","lease_until","active_operation")},"operations":ops}
+
+    @app.get("/api/deals")
+    def my_deals(request: Request):
+        actor=user(request)
+        with db.tx() as conn:
+            rows=conn.execute("""SELECT id,policy,payment_state FROM deals WHERE buyer_id=%s OR supplier_id=%s
+                ORDER BY created_at DESC LIMIT 50""",(actor["id"],actor["id"])).fetchall()
+        return {"deals":rows}
+
+    @app.get("/api/deals/{deal_id}/workspace")
+    def workspace(deal_id: UUID,request: Request):
+        actor,d=access(request,deal_id)
+        with db.tx() as conn:
+            docs=conn.execute("""SELECT id,version,kind,sha256,active,parse_state,extraction
+                FROM documents WHERE deal_id=%s ORDER BY version DESC""",(deal_id,)).fetchall()
+            decision=conn.execute("""SELECT * FROM decisions WHERE deal_id=%s AND evidence_generation=%s
+                ORDER BY created_at DESC,id DESC LIMIT 1""",(deal_id,d["evidence_generation"])).fetchone()
+            events=conn.execute("""SELECT event,data,created_at FROM audit WHERE deal_id=%s
+                ORDER BY created_at DESC,id DESC LIMIT 40""",(deal_id,)).fetchall()
+            ops=conn.execute("""SELECT id,kind,state,provider_id,decision_id,request_id,first_dispatch_at,
+                retry_deadline,attempts,last_error FROM operations WHERE deal_id=%s ORDER BY created_at""",(deal_id,)).fetchall()
+        return {"deal":{k:v for k,v in d.items() if k not in ("lease_generation","lease_until","active_operation")},
+                "documents":docs,"decision":decision,"events":events,"operations":ops}
 
     @app.post("/api/deals/{deal_id}/approve")
     def approve(deal_id: UUID,body: Approval,request: Request):
@@ -301,8 +345,11 @@ def create_app(config: Settings | None=None,db=None,paypal=None):
                 "PAYMENT.CAPTURE.REFUNDED","PAYMENT.CAPTURE.REVERSED"}:
             return {"accepted":True,"ignored":True}
         with db.tx() as conn:
-            conn.execute("""INSERT INTO webhook_inbox(event_id,raw_body,event) VALUES(%s,%s,%s)
-                ON CONFLICT(event_id) DO NOTHING""",(event["id"],raw,Jsonb(event)))
+            verification_headers={key:request.headers.get(key,"") for key in (
+                "paypal-auth-algo","paypal-cert-url","paypal-transmission-id","paypal-transmission-sig","paypal-transmission-time")}
+            conn.execute("""INSERT INTO webhook_inbox(event_id,raw_body,event,verification_headers,verification_method)
+                VALUES(%s,%s,%s,%s,%s) ON CONFLICT(event_id) DO NOTHING""",
+                (event["id"],raw,Jsonb(event),Jsonb(verification_headers),getattr(paypal,"verification_method","test_double")))
         return {"accepted":True}
 
     return app

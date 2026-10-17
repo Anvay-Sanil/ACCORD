@@ -82,6 +82,7 @@ class Coordinator:
             d = lock_deal(conn, deal_id)
             old = operation(conn, deal_id, "CAPTURE")
             if old and old["first_dispatch_at"]:
+                audit(conn,deal_id,"CAPTURE_REPEAT_SUBMISSION",{"operation_id":str(old["id"]),"request_id":str(old["request_id"])})
                 return old
             if (not d["authorization_id"] or d["cancel_requested"] or
                     d["payment_state"] not in ("AUTHORIZED", "CAPTURE_QUEUED") or
