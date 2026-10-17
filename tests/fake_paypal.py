@@ -6,7 +6,7 @@ from accord.paypal import ProviderError
 
 
 class FakePayPal:
-    def __init__(self,deal,clock):
+    def __init__(self,deal,clock,namespace="1"):
         self.deal,self.clock = deal,clock
         self.calls,self.cache = [],{}
         self.order_value,self.auth,self.capture = None,None,None
@@ -15,6 +15,7 @@ class FakePayPal:
         self.verify_result = True
         self.capture_status = "COMPLETED"
         self.before_post = None
+        self.order_id,self.auth_id,self.capture_id = "ORDER"+namespace,"AUTH"+namespace,"CAPTURE"+namespace
 
     async def close(self):
         pass
@@ -50,16 +51,16 @@ class FakePayPal:
             return copy.deepcopy(self.cache[key])
         body = json.loads(payload)
         if path == "/v2/checkout/orders":
-            self.order_value = {"id":"ORDER1","status":"APPROVED","intent":"AUTHORIZE",
+            self.order_value = {"id":self.order_id,"status":"APPROVED","intent":"AUTHORIZE",
                 "payer":{"payer_id":"BUYER1"},"purchase_units":body["purchase_units"]}
             result = self.order()
         elif path.endswith("/authorize"):
-            self.auth = {"id":"AUTH1","status":"CREATED","amount":{"currency_code":"USD","value":"750.00"},
+            self.auth = {"id":self.auth_id,"status":"CREATED","amount":{"currency_code":"USD","value":"750.00"},
                 "create_time":self.clock().isoformat()}
             result = self.order()
         elif path.endswith("/capture"):
-            self.capture = {"id":"CAPTURE1","status":self.capture_status,"amount":body["amount"],
-                "payee":{"merchant_id":"MERCHANT1"},"supplementary_data":{"related_ids":{"order_id":"ORDER1","authorization_id":"AUTH1"}}}
+            self.capture = {"id":self.capture_id,"status":self.capture_status,"amount":body["amount"],
+                "payee":{"merchant_id":"MERCHANT1"},"supplementary_data":{"related_ids":{"order_id":self.order_id,"authorization_id":self.auth_id}}}
             result = self.capture
         elif path.endswith("/void"):
             self.auth["status"] = "VOIDED"

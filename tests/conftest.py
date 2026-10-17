@@ -11,6 +11,19 @@ from psycopg.types.json import Jsonb
 
 from accord.db import DB,canonical,digest,uid
 from accord.contract import policy as make_policy
+from accord.config import Settings,settings
+
+
+@pytest.fixture(autouse=True)
+def isolated_configuration(monkeypatch,db):
+    """A developer's real provider credentials/configuration must never enter tests."""
+    monkeypatch.setitem(Settings.model_config,"env_file",None)
+    for name in Settings.model_fields:
+        if name!="database_url":
+            monkeypatch.delenv(name.upper(),raising=False)
+    settings.cache_clear()
+    yield
+    settings.cache_clear()
 
 
 class Clock:
