@@ -84,6 +84,7 @@ def backoff(attempt, retry_after=0):
 
 
 class PayPal:
+    verification_method = "paypal_postback"
     def __init__(self, settings, transport=None):
         self.settings = settings
         self.client = httpx.AsyncClient(

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ACCORD · Delivery & payment</title>
+  <link rel="stylesheet" href="/assets/style.css"><script src="/assets/app.js" defer></script>
+</head>
+<body>
+  <header><a class="brand" href="/">ACCORD<span class="mark">↗</span></a><span class="environment" id="environment">PayPal Sandbox</span><div id="identity"></div><button id="logout" class="quiet" hidden>Sign out</button></header>
+  <main>
+    <section id="login-view" class="login-layout">
+      <div><p class="eyebrow">DELIVERY BEFORE CAPTURE</p><h1>Paperwork checked.<br>Payment accountable.</h1><p class="intro">Review the delivered material against an agreed requirement. Follow every finding through to the supplier’s payment.</p><div class="principles"><span>01 &nbsp; Agree</span><span>02 &nbsp; Verify</span><span>03 &nbsp; Capture</span></div></div>
+      <form id="login-form" class="panel"><h2>Open your workspace</h2><p>Use your buyer or supplier application account.</p><label>Username<input id="username" name="username" autocomplete="username" required></label><label>Password<input id="password" name="password" type="password" autocomplete="current-password" required></label><button type="submit">Sign in</button><p class="muted">Application sign-in is separate from buyer approval in PayPal.</p></form>
+    </section>
+    <section id="workspace" hidden>
+      <div class="page-title"><div><p class="eyebrow">DELIVERY WORKSPACE</p><h1 id="deal-title">Your agreement</h1></div><label class="deal-selector">Agreement<select id="deal-select"></select></label><button id="refresh" class="secondary">Refresh</button></div>
+      <div class="summary-grid">
+        <article class="panel"><p class="eyebrow">APPROVED REQUIREMENT</p><div class="metric" id="requirement">316L</div><p id="lot"></p><span id="consents" class="muted"></span></article>
+        <article class="panel"><p class="eyebrow">EVIDENCE DECISION</p><div class="metric small" id="decision-state">Awaiting evidence</div><p id="decision-reason"></p><button id="evaluate" class="text-button">Check evidence again ↗</button></article>
+        <article class="panel payment"><p class="eyebrow">SUPPLIER PAYMENT · $750.00 USD</p><div class="metric small" id="payment-state">Awaiting approval</div><p id="deadline">48 hours from PayPal authorization creation</p><p id="payment-detail"></p></article>
+      </div>
+      <section class="panel agreement"><div><h2>1. Approve the agreement</h2><p id="mandate"></p></div><div class="agreement-action"><label class="check"><input id="agree-check" type="checkbox">I approve these requirements and the conditional capture mandate.</label><button id="approve">Approve agreement</button><span id="approval-note" class="muted"></span></div></section>
+      <section id="buyer-checkout" class="panel" hidden><div class="section-head"><div><h2>2. Authorize with PayPal</h2><p>Approve one $750.00 authorization. Capture follows only when the approved evidence conditions pass.</p></div><button id="prepare-checkout" class="secondary">Prepare checkout</button></div><div id="paypal-area" hidden><paypal-button id="paypal-button"></paypal-button></div><p id="checkout-status" role="status"></p><button id="recover-approval" class="text-button" hidden>Recheck completed PayPal approval</button></section>
+      <div class="evidence-layout">
+        <section class="panel"><div class="section-head"><div><p class="eyebrow">EVIDENCE</p><h2>3. Delivery documents</h2></div><span class="muted">PDF · up to 5 MB</span></div><form id="upload-form"><label id="upload-label">Upload document<input id="document-file" type="file" accept="application/pdf" required></label><button type="submit" class="secondary">Upload PDF</button></form><p class="muted">Uploads record provenance. They do not establish that the certificate is truthful.</p><div id="documents"></div><div id="delivery-controls" hidden><label class="check"><input id="received-check" type="checkbox">I confirm physical receipt of this PO and lot.</label><button id="acknowledge" class="secondary">Acknowledge delivery</button></div></section>
+        <section class="panel"><p class="eyebrow">CITED INTERPRETATION</p><h2 id="document-title">Select a document</h2><p id="document-meta" class="muted"></p><div id="finding-summary"></div><pre id="passage">Select a document to inspect exact source spans.</pre><a id="download" hidden>Download original PDF ↗</a><details id="provenance"><summary>Extraction provenance</summary><pre id="versions"></pre></details><div id="review-controls" hidden><h3>Buyer interpretation review</h3><p>Review may resolve ambiguity. It cannot replace a recognized delivered value with the required value.</p><form id="review-form"><label>Delivered grade / receipt value<input id="review-value" required maxlength="40"></label><label>Source spans<select id="review-spans" multiple size="5" required></select></label><label>Reason<textarea id="review-reason" minlength="10" required rows="2"></textarea></label><button class="secondary" type="submit">Record interpretation</button></form><hr><h3>Replace earlier evidence</h3><p>Compare both versions before accepting this document as a replacement.</p><label>Earlier document<select id="replace-old"></select></label><label class="check"><input id="replacement-check" type="checkbox">I reviewed the replacement’s delivered value, purchase order and lot.</label><button id="replace" class="secondary">Accept replacement & evaluate</button><p class="muted">A passing result may immediately queue capture under the approved mandate.</p></div></section>
+      </div>
+      <section class="panel"><div class="section-head"><div><h2>4. Payment record</h2><p id="capture-explanation">Evidence approval and confirmed payment are separate states.</p></div><div id="supplier-actions" hidden><button id="capture" class="secondary">Request capture</button><button id="void" class="quiet">Request cancellation</button></div></div><div id="operations"></div><details><summary>Evidence and payment audit trail</summary><ol id="audit"></ol></details></section>
+    </section>
+    <div id="notice" role="status" aria-live="polite" hidden></div>
+  </main><footer>ACCORD · One agreement. One authorization. One final capture.<span>Phase 3 acceptance workspace</span></footer>
+</body></html>

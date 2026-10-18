@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     fault_drop_capture_response: bool = False
     openai_api_key: str = ""
     openai_model: str = "gpt-4.1-2025-04-14"
+    provider_label: str = "PayPal Sandbox"
 
     @model_validator(mode="after")
     def safe_deployment(self):
@@ -34,4 +35,3 @@ class Settings(BaseSettings):
 @lru_cache
 def settings():
     return Settings()
-
