@@ -1,0 +1,107 @@
+name: ACCORD Linux acceptance
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accord-linux-acceptance-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      ACCORD_ACCEPTANCE_PROJECT: accord-linux-${{ github.run_id }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the selected commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Record source and runner
+        run: |
+          set -euo pipefail
+          mkdir -p acceptance-record/linux
+          python3 - <<'PY'
+          from datetime import datetime, timezone
+          import json, os, platform
+          from pathlib import Path
+          report = {
+              "timestamp": datetime.now(timezone.utc).isoformat(),
+              "source_sha": os.environ["GITHUB_SHA"],
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "runner": platform.platform(),
+              "scope": "Synthetic Linux acceptance; no real provider credentials or production database",
+          }
+          Path("acceptance-record/linux/ci-source.json").write_text(json.dumps(report, indent=2))
+          PY
+          docker version > acceptance-record/linux/docker-version.log
+          docker compose version > acceptance-record/linux/compose-version.log
+
+      - name: Run migrations, regressions, parser limits, recovery and browser
+        timeout-minutes: 30
+        run: |
+          set -euo pipefail
+          docker compose --project-name "$ACCORD_ACCEPTANCE_PROJECT" -f compose.acceptance.yaml \
+            up --build --abort-on-container-exit --exit-code-from acceptance 2>&1 \
+            | tee acceptance-record/linux/compose.log
+
+      - name: Require complete passing execution records
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          base = Path("acceptance-record/linux")
+          load = lambda relative: json.loads((base / relative).read_text())
+          result = load("linux-result.json")
+          assert result["system"] == "Linux" and result["status"] == "PASS"
+          assert len(result["steps"]) == 5 and all(step.get("exit_code") == 0 for step in result["steps"])
+          tests = result["tests"]
+          assert int(tests["tests"]) >= 78
+          assert all(int(tests[key]) == 0 for key in ("failures", "errors", "skipped"))
+          limits = load("parser-limits.json")
+          assert limits["status"] == "PASS" and all(limits["checks"].values())
+          recovery = load("process-recovery/process-result.json")
+          assert recovery["provider"] == "test_double" and recovery["status"] == "PASS_WITH_TEST_DOUBLE"
+          assert recovery["replacement_worker_posts"] == 0
+          browser = load("browser/browser-result.json")
+          assert browser["provider"] == browser["model"] == "test_double"
+          assert browser["status"] == "PASS_WITH_TEST_DOUBLES" and len(browser["assertions"]) >= 8
+          assert browser["capture_operations"] == 1
+          assert sum(call["method"] == "POST" and call["path"].endswith("/capture") for call in browser["provider_calls"]) == 1
+          print("Linux execution records passed; real PayPal and model gates remain separate.")
+          PY
+
+      - name: Collect service logs and remove this run's test containers
+        if: always()
+        run: |
+          set -euo pipefail
+          if [[ -f compose.acceptance.yaml ]]; then
+            mkdir -p acceptance-record/linux
+            docker compose --project-name "$ACCORD_ACCEPTANCE_PROJECT" -f compose.acceptance.yaml \
+              ps --all > acceptance-record/linux/service-status.log 2>&1 || true
+            docker compose --project-name "$ACCORD_ACCEPTANCE_PROJECT" -f compose.acceptance.yaml \
+              logs --no-color > acceptance-record/linux/service-logs.log 2>&1 || true
+            docker compose --project-name "$ACCORD_ACCEPTANCE_PROJECT" -f compose.acceptance.yaml \
+              down --volumes --remove-orphans
+          fi
+
+      - name: Upload execution evidence, including failures
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: accord-linux-${{ github.run_id }}-${{ github.run_attempt }}
+          path: acceptance-record/linux/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
