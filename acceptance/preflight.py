@@ -17,7 +17,9 @@ async def main():
     config=Settings();client=PayPal(config)
     report["configuration"]={k:bool(os.environ.get(k)) for k in (
         "PAYPAL_CLIENT_ID","PAYPAL_CLIENT_SECRET","PAYPAL_MERCHANT_ID","PAYPAL_WEBHOOK_ID","OPENAI_API_KEY",
-        "BUYER_PAYER_ID","ACCORD_BUYER_PASSWORD","ACCORD_SUPPLIER_PASSWORD")}
+        "GEMINI_API_KEY","BUYER_PAYER_ID","ACCORD_BUYER_PASSWORD","ACCORD_SUPPLIER_PASSWORD")}
+    report["extraction_provider"]=config.extraction_provider
+    report["extraction_model"]=config.gemini_model if config.extraction_provider=="gemini" else config.openai_model
     report["configuration"]["BUYER_PAYER_ID"]=bool(os.environ.get("BUYER_PAYER_ID") or os.environ.get("PAYPAL_BUYER_PAYER_ID"))
     report["configuration"]["ACCORD_OWNER_DATABASE_URL"]=bool(os.environ.get("ACCORD_OWNER_DATABASE_URL"))
     report["https_origin"]=config.app_origin.startswith("https://")
