@@ -47,6 +47,9 @@ services:
       DATABASE_URL: postgresql://accord_app:${APP_DB_PASSWORD}@db:5432/accord
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-2025-04-14}
+      EXTRACTION_PROVIDER: ${EXTRACTION_PROVIDER:-openai}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash-lite}
     mem_limit: 768m
     cpus: 1
     depends_on:
