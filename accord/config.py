@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -17,6 +18,9 @@ class Settings(BaseSettings):
     fault_drop_capture_response: bool = False
     openai_api_key: str = ""
     openai_model: str = "gpt-4.1-2025-04-14"
+    extraction_provider: Literal["openai", "gemini"] = "openai"
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-3.5-flash-lite"
     provider_label: str = "PayPal Sandbox"
 
     @model_validator(mode="after")

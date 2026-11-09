@@ -1,6 +1,6 @@
 # ACCORD — Phase 3 buyer/supplier journey
 
-**18 October review:** 78 real-PostgreSQL regressions and eight Chromium assertions passed. Browser PayPal/model responses are explicit doubles. Real PayPal, model and Linux gates remain outstanding. For deployment, use [Render setup](RENDER_JOURNEY_UPDATE.md).
+**19 October checkpoint:** 95 real-PostgreSQL regressions and ten real Gemini 3.5 Flash-Lite fixtures passed. See [GEMINI_SETUP.md](GEMINI_SETUP.md) for the free extraction option. The reviewed baseline passed Linux CI at commit `d8b6a0d`, including eight browser assertions with explicit provider/model doubles; that Linux run predates this adapter. Real Sandbox payment and signature acceptance remain outstanding. For deployment, use [Render setup](RENDER_JOURNEY_UPDATE.md).
 
 **ACCORD checks delivery paperwork against approved requirements before a supplier captures a PayPal payment.**
 

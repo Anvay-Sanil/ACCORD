@@ -20,6 +20,19 @@ Report all competing values. Missing or unclear associations need review. Never 
 
 
 async def propose(config,document,parsed):
+    if config.extraction_provider == "gemini":
+        from .gemini import generate, provider_schema, ADAPTER_VERSION, GENERATION_CONFIG
+        text,result,attempts = await generate(config,PROMPT,{
+            "document_id":str(document["id"]),"document_version":document["version"],
+            "kind":document["kind"],"spans":parsed["spans"]},Proposal.model_json_schema())
+        proposal = Proposal.model_validate_json(text)
+        return {"proposal":proposal.model_dump(),"versions":{"parser":parsed["parser"],
+                "schema":SCHEMA_VERSION,"prompt":PROMPT_VERSION,"prompt_sha256":digest(PROMPT),
+                "provider":"gemini","adapter":ADAPTER_VERSION,
+                "provider_schema_sha256":digest(json.dumps(provider_schema(Proposal.model_json_schema()),sort_keys=True)),
+                "model":result.get("model",config.gemini_model),"requested_model":config.gemini_model},
+                "response_id":result.get("id"),"provider_output":result.get("steps"),
+                "usage":result.get("usage"),"http_attempts":attempts,"generation_config":GENERATION_CONFIG}
     if not config.openai_api_key:
         raise ValueError("Model key unavailable; buyer review required")
     async with httpx.AsyncClient(timeout=httpx.Timeout(30,connect=5),follow_redirects=False) as client:
@@ -40,7 +53,8 @@ async def propose(config,document,parsed):
                    if part.get("type")=="output_text")
     proposal = Proposal.model_validate_json(text)
     return {"proposal":proposal.model_dump(),"versions":{"parser":parsed["parser"],"schema":SCHEMA_VERSION,
-            "prompt":PROMPT_VERSION,"prompt_sha256":digest(PROMPT),"model":result.get("model",config.openai_model)},
+            "prompt":PROMPT_VERSION,"prompt_sha256":digest(PROMPT),"provider":"openai",
+            "model":result.get("model",config.openai_model)},
             "response_id":result.get("id"),"provider_output":result.get("output"),"usage":result.get("usage")}
 
 
@@ -61,7 +75,9 @@ async def once(db,config):
     except Exception as exc:
         state = "REVIEW_REQUIRED"
         extraction = {"error":type(exc).__name__,"versions":{"parser":parsed["parser"] if parsed else "pdfplumber-"+version("pdfplumber"),
-            "schema":SCHEMA_VERSION,"prompt":PROMPT_VERSION,"prompt_sha256":digest(PROMPT),"model":config.openai_model}}
+            "schema":SCHEMA_VERSION,"prompt":PROMPT_VERSION,"prompt_sha256":digest(PROMPT),
+            "provider":config.extraction_provider,
+            "model":config.gemini_model if config.extraction_provider == "gemini" else config.openai_model}}
     with db.tx() as conn:
         d = lock_deal(conn,doc["deal_id"])
         row = conn.execute("SELECT parse_generation,parse_lease_until FROM documents WHERE id=%s",(doc["id"],)).fetchone()

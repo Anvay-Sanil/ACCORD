@@ -72,7 +72,7 @@ The recovery command starts a separate worker process, persists a dispatch, simu
 python -m acceptance.model_proof
 ```
 
-The pinned Responses model processes ten PDFs spanning field, table and narrative layouts, required-versus-delivered grade, mixed lots, negation, contradiction, missing delivery grade and embedded instructions. Every output retains response ID, provider output, usage, parser/schema/prompt/model versions, source hash/spans, citation checks and the backend decision. Authentication or quota errors stop the run with BLOCKED; no fabricated extraction substitutes for them. Do not repeatedly rerun an exhausted project until funding or the API key changes.
+The explicitly selected model processes ten PDFs spanning field, table and narrative layouts, required-versus-delivered grade, mixed lots, negation, contradiction, missing delivery grade and embedded instructions. See [GEMINI_SETUP.md](GEMINI_SETUP.md) for the tested free Gemini option. Records retain the provider response ID when returned (Gemini may omit it with storage disabled), provider output, usage, parser/schema/prompt/model versions, source hash/spans, citation checks and backend decision. Authentication or quota errors stop the run with BLOCKED; no fabricated extraction substitutes for them. Honor the provider's cooldown before retrying an exhausted model.
 
 ### Real PayPal
 

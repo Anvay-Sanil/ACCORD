@@ -1,4 +1,4 @@
-"""Record real Responses outputs, exact citations, and backend decisions. No fake fallback."""
+"""Record real provider outputs, exact citations, and backend decisions. No fake fallback."""
 import argparse
 import asyncio
 import json
@@ -17,10 +17,12 @@ async def main():
     parser=argparse.ArgumentParser();parser.add_argument("--output",default="acceptance-record/model")
     args=parser.parse_args();out=Path(args.output);out.mkdir(parents=True,exist_ok=True)
     config=Settings(database_url="postgresql://unused")
-    report={"gate":"real_model","timestamp":utcnow().isoformat(),"model":config.openai_model,"cases":[]}
+    model = config.gemini_model if config.extraction_provider == "gemini" else config.openai_model
+    key = config.gemini_api_key if config.extraction_provider == "gemini" else config.openai_api_key
+    report={"gate":"real_model","timestamp":utcnow().isoformat(),"provider":config.extraction_provider,"model":model,"cases":[]}
     destination=out/"model-result.json"
-    if not config.openai_api_key or config.openai_api_key.startswith("replace-"):
-        report.update(status="BLOCKED",reason="OPENAI_API_KEY is not configured. No model call was attempted.")
+    if not key or key.startswith("replace-"):
+        report.update(status="BLOCKED",reason="Selected model key is not configured. No model call was attempted.")
         destination.write_text(json.dumps(report,indent=2),encoding="utf-8");print(report["reason"]);return 2
     fixtures=write_fixtures(out/"fixtures")
     policy={"purchase_order":"PO-001","lot":"LOT-001","material_grade":"316L"}
@@ -45,7 +47,8 @@ async def main():
         except httpx.HTTPStatusError as exc:
             error=exc.response.json().get("error",{})
             item.update(passed=False,error=type(exc).__name__,http_status=exc.response.status_code,
-                        provider_error_code=error.get("code"),provider_parameter=error.get("param"))
+                        provider_error_code=error.get("code"),provider_parameter=error.get("param"),
+                        provider_message=str(error.get("message",""))[:1000].replace(key,"[REDACTED]"))
             report["cases"].append(item)
             report["status"]="BLOCKED" if exc.response.status_code in (401,403,429) else "FAIL"
             destination.write_text(json.dumps(report,indent=2),encoding="utf-8")
@@ -53,6 +56,11 @@ async def main():
             return 2
         except Exception as exc:
             item.update(passed=False,error=type(exc).__name__)
+            if isinstance(exc,httpx.TransportError):
+                # Do not burn the remaining fixture quota on a systemic HTTP failure.
+                report["cases"].append(item);report["status"]="FAIL"
+                destination.write_text(json.dumps(report,indent=2),encoding="utf-8")
+                print(json.dumps({"status":"FAIL","error":type(exc).__name__}));return 1
         report["cases"].append(item)
         # Record each provider result immediately; an interrupted run cannot become a pass.
         report["status"]="RUNNING";destination.write_text(json.dumps(report,indent=2),encoding="utf-8")
